@@ -6,35 +6,33 @@ from google.genai import types
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 
-def get_client():
+def create_client():
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError(
-            "GEMINI_API_KEY is missing. Add it in Render > Environment."
-        )
+        raise RuntimeError("GEMINI_API_KEY is not set in the Render environment.")
     return genai.Client(api_key=api_key)
 
 
-def chat(message, history, custom_instructions):
+def chat(message, history, instructions):
     history = history or []
     message = (message or "").strip()
-    custom_instructions = (custom_instructions or "").strip()
+    instructions = (instructions or "").strip()
 
     if not message:
-        return history, "", "Enter a message first."
+        return history, "", "Please enter a message."
 
-    # Keep only valid, recent user/assistant messages for context.
     contents = []
+    # Include recent conversation turns so Gemini has context.
     for item in history[-12:]:
         if not isinstance(item, dict):
             continue
         role = item.get("role")
-        text = item.get("content")
-        if role in ("user", "assistant") and isinstance(text, str) and text.strip():
+        content = item.get("content")
+        if role in ("user", "assistant") and isinstance(content, str) and content.strip():
             contents.append(
                 types.Content(
                     role="user" if role == "user" else "model",
-                    parts=[types.Part.from_text(text=text)],
+                    parts=[types.Part.from_text(text=content)],
                 )
             )
 
@@ -42,14 +40,10 @@ def chat(message, history, custom_instructions):
         types.Content(role="user", parts=[types.Part.from_text(text=message)])
     )
 
-    system_instruction = (
-        custom_instructions
-        if custom_instructions
-        else "Answer helpfully, accurately, and clearly."
-    )
+    system_instruction = instructions or "Answer helpfully, accurately, and clearly."
 
     try:
-        client = get_client()
+        client = create_client()
         response = client.models.generate_content(
             model=MODEL_NAME,
             contents=contents,
@@ -64,33 +58,39 @@ def chat(message, history, custom_instructions):
         if not answer:
             answer = "Gemini returned an empty response. Please try again."
 
-        history = history + [
+        updated_history = history + [
             {"role": "user", "content": message},
             {"role": "assistant", "content": answer},
         ]
 
         usage = getattr(response, "usage_metadata", None)
-        if usage:
-            input_tokens = getattr(usage, "prompt_token_count", None)
-            output_tokens = getattr(usage, "candidates_token_count", None)
-            total_tokens = getattr(usage, "total_token_count", None)
-            usage_text = (
-                f"**Token usage** — Input: {input_tokens if input_tokens is not None else 'N/A'} · "
-                f"Output: {output_tokens if output_tokens is not None else 'N/A'} · "
-                f"Total: {total_tokens if total_tokens is not None else 'N/A'}"
-            )
+        if usage is None:
+            usage_text = "Token usage metadata was not returned."
         else:
-            usage_text = "Token usage metadata was not returned for this response."
+            input_count = getattr(usage, "prompt_token_count", None)
+            output_count = getattr(usage, "candidates_token_count", None)
+            total_count = getattr(usage, "total_token_count", None)
+            usage_text = (
+                f"**Token usage** — Input: {input_count if input_count is not None else 'N/A'} · "
+                f"Output: {output_count if output_count is not None else 'N/A'} · "
+                f"Total: {total_count if total_count is not None else 'N/A'}"
+            )
 
-        return history, "", usage_text
+        return updated_history, "", usage_text
 
     except Exception as exc:
-        # Diagnostic details go to Render logs; never print the API key.
+        # Log diagnostic information, but never log the API key.
         print(f"Gemini API error ({type(exc).__name__}): {exc}", flush=True)
+        error_text = f"{type(exc).__name__}: {exc}".upper()
 
-        details = f"{type(exc).__name__}: {exc}"
-        upper = details.upper()
-
-        if "API KEY" in upper or "API_KEY_INVALID" in upper or "UNAUTHENTICATED" in upper or "401" in upper:
-            answer = "Authentication failed. In Render > Environment, check that GEMINI_API_KEY contains a valid Gemini API key. Save and redeploy."
-        elif "PERMISSION_DENIED" in upper or "403" in upper:
+        if "API_KEY_INVALID" in error_text or "UNAUTHENTICATED" in error_text or "401" in error_text:
+            answer = "Authentication failed. Check GEMINI_API_KEY in Render Environment, then redeploy."
+        elif "PERMISSION_DENIED" in error_text or "403" in error_text:
+            answer = "Permission denied. Check that your Gemini API key and API permissions are correct."
+        elif "RESOURCE_EXHAUSTED" in error_text or "429" in error_text or "QUOTA" in error_text:
+            answer = "Gemini API quota or rate limit reached. Check your API usage and limits."
+        elif "NOT_FOUND" in error_text or "404" in error_text:
+            answer = f"The model '{MODEL_NAME}' was not found. Check the GEMINI_MODEL setting in Render."
+        elif "503" in error_text or "UNAVAILABLE" in error_text:
+            answer = "Gemini is temporarily unavailable. Please try again shortly."
+        else:
