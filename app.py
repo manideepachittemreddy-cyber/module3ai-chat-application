@@ -3,10 +3,10 @@ import gradio as gr
 from google import genai
 from google.genai import types
 
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
-MAX_OUTPUT_TOKENS = 512
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 MAX_HISTORY_MESSAGES = 10
 MAX_MESSAGE_CHARS = 1500
+MAX_OUTPUT_TOKENS = 512
 
 
 def build_prompt(history, message):
@@ -33,12 +33,11 @@ def chat(message, history, custom_instructions):
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        answer = "App setup issue: the owner must add GEMINI_API_KEY in Render Environment settings."
-        updated_history = history + [
+        answer = "Setup issue: the owner must add GEMINI_API_KEY in Render Environment settings."
+        return history + [
             {"role": "user", "content": message},
             {"role": "assistant", "content": answer},
-        ]
-        return updated_history, "", "API key is not configured."
+        ], "", "API key is not configured."
 
     try:
         client = genai.Client(api_key=api_key)
@@ -66,31 +65,79 @@ def chat(message, history, custom_instructions):
                 "**Token usage (this request):** "
                 f"input `{input_tokens if input_tokens is not None else 'n/a'}`, "
                 f"output `{output_tokens if output_tokens is not None else 'n/a'}`, "
-                f"total `{total_tokens if total_tokens is not None else 'n/a'}`. "
-                "Token usage is not the same as price; actual cost depends on model and account pricing."
+                f"total `{total_tokens if total_tokens is not None else 'n/a'}`."
             )
         else:
             usage_text = "Token usage metadata was not returned for this request."
     except Exception as exc:
-        error_text = str(exc).upper()
-        if "503" in error_text or "UNAVAILABLE" in error_text:
-            answer = "Gemini is temporarily busy. Please wait a moment and try again."
-        elif "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
-            answer = "The API quota or rate limit was reached. Check your Gemini API usage and try again later."
-        elif "401" in error_text or "403" in error_text or "API_KEY_INVALID" in error_text:
-            answer = "Authentication failed. The app owner should check GEMINI_API_KEY and API permissions."
+        error = str(exc).upper()
+        if "503" in error or "UNAVAILABLE" in error:
+            answer = "Gemini is temporarily busy. Wait a moment and try again."
+        elif "429" in error or "RESOURCE_EXHAUSTED" in error:
+            answer = "The Gemini API quota or rate limit was reached. Check API usage and try again later."
+        elif any(code in error for code in ("401", "403", "API_KEY_INVALID")):
+            answer = "Authentication failed. The owner should check GEMINI_API_KEY and API permissions."
         else:
             answer = f"The request failed ({type(exc).__name__}). Please try again."
         usage_text = "Token usage is shown after successful API responses."
 
-    updated_history = history + [
+    return history + [
         {"role": "user", "content": message},
         {"role": "assistant", "content": answer},
-    ]
-    return updated_history, "", usage_text
+    ], "", usage_text
 
 
 with gr.Blocks(title="AI Productivity Chat") as demo:
     gr.Markdown("# 🤖 AI Productivity Chat")
     gr.Markdown(
         "Ask questions, keep context across messages, and customize how Gemini responds. "
+        "Please do not enter private or sensitive information."
+    )
+    instructions = gr.Textbox(
+        label="Custom Instructions",
+        value="You are a friendly assistant. Explain answers clearly in simple language with examples.",
+        placeholder="Example: Answer in two sentences and use simple English.",
+        lines=2,
+    )
+    chatbot = gr.Chatbot(label="Conversation", height=420)
+    message = gr.Textbox(
+        label="Your Message",
+        placeholder="Type a question and press Enter...",
+        lines=2,
+    )
+    with gr.Row():
+        send_button = gr.Button("Send 🚀", variant="primary")
+        clear_button = gr.Button("Clear Chat")
+    usage_display = gr.Markdown(
+        "**Token usage:** Send a message to see this request's token counts."
+    )
+    send_button.click(
+        fn=chat,
+        inputs=[message, chatbot, instructions],
+        outputs=[chatbot, message, usage_display],
+    )
+    message.submit(
+        fn=chat,
+        inputs=[message, chatbot, instructions],
+        outputs=[chatbot, message, usage_display],
+    )
+    clear_button.click(
+        fn=lambda: (
+            [],
+            "",
+            "**Token usage:** Send a message to see this request's token counts.",
+        ),
+        inputs=None,
+        outputs=[chatbot, message, usage_display],
+    )
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "10000"))
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=port,
+        share=False,
+        theme=gr.themes.Soft(),
+        show_error=True,
+    )
