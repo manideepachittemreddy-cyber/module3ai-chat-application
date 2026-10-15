@@ -88,44 +88,73 @@ def chat(message, history, custom_instructions):
         {"role": "assistant", "content": answer},
     ]
     return updated_history, "", usage_text
-
-
-with gr.Blocks(title="AI Productivity Chat", theme=gr.themes.Soft()) as demo:
+    with gr.Blocks(
+    title="AI Productivity Chat",
+    theme=gr.themes.Soft()
+) as demo:
     gr.Markdown("# 🤖 AI Productivity Chat")
     gr.Markdown(
-        "Ask questions, keep context across messages, and customize how Gemini responds. "
-        "Please do not enter private or sensitive information."
+        "Ask questions, keep context across messages, "
+        "and customize how Gemini responds."
     )
 
     instructions = gr.Textbox(
         label="Custom Instructions",
-        value="You are a friendly assistant. Explain answers clearly in simple language with examples.",
-        placeholder="Example: Answer in two sentences and use simple English.",
+        value="Explain answers clearly with examples.",
+        placeholder="Example: Use simple English.",
         lines=2,
     )
-   chatbot = gr.Chatbot(label="Conversation", height=420)
-    message = gr.Textbox(label="Your Message", placeholder="Type a question and press Enter...", lines=2)
+
+    chatbot = gr.Chatbot(
+        label="Conversation",
+        height=420,
+    )
+
+    message = gr.Textbox(
+        label="Your Message",
+        placeholder="Type a question and press Enter...",
+        lines=2,
+    )
+
     with gr.Row():
         send_button = gr.Button("Send 🚀", variant="primary")
         clear_button = gr.Button("Clear Chat")
-    usage_display = gr.Markdown("**Token usage:** Send a message to see this request's token counts.")
+
+    usage_display = gr.Markdown(
+        "**Token usage:** Send a message to see token counts."
+    )
 
     send_button.click(
         fn=chat,
         inputs=[message, chatbot, instructions],
         outputs=[chatbot, message, usage_display],
     )
+
     message.submit(
         fn=chat,
         inputs=[message, chatbot, instructions],
         outputs=[chatbot, message, usage_display],
     )
+
     clear_button.click(
-        fn=lambda: ([], "", "**Token usage:** Send a message to see this request's token counts."),
+        fn=lambda: (
+            [],
+            "",
+            "**Token usage:** Send a message to see token counts.",
+        ),
         inputs=None,
         outputs=[chatbot, message, usage_display],
     )
 
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "7860"))
-    demo.launch(server_name="0.0.0.0", server_port=port, share=False)
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=port,
+        share=False,
+    )
+
+
+
+
