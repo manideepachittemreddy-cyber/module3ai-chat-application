@@ -1,3 +1,35 @@
+import os
+import gradio as gr
+from google import genai
+from google.genai import types
+
+BUILD_MARKER = "MODULE3_CHAT_APP_GRADIO6_FIXED"
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
+MAX_HISTORY = 12
+MAX_CHARS = 2000
+
+
+def make_contents(history, current_message):
+    """Build a bounded conversation prompt from Gradio's messages history."""
+    parts = []
+    for item in (history or [])[-MAX_HISTORY:]:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content", "")
+        if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+            label = "User" if role == "user" else "Assistant"
+            parts.append(f"{label}: {content[:MAX_CHARS]}")
+    parts.append(f"User: {current_message[:MAX_CHARS]}")
+    parts.append("Assistant:")
+    return "\n\n".join(parts)
+
+
+def chat(message, history, instructions):
+    message = (message or "").strip()
+    history = history or []
+
+    if not message:
         return history, "", "Please type a message first."
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
