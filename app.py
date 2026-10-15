@@ -33,10 +33,7 @@ def chat(message, history, custom_instructions):
 
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        answer = (
-            "The app owner needs to add GEMINI_API_KEY in the hosting service's "
-            "environment/secrets settings."
-        )
+        answer = "App setup issue: the owner must add GEMINI_API_KEY in Render Environment settings."
         updated_history = history + [
             {"role": "user", "content": message},
             {"role": "assistant", "content": answer},
@@ -47,10 +44,7 @@ def chat(message, history, custom_instructions):
         client = genai.Client(api_key=api_key)
         instructions = (custom_instructions or "").strip()
         if not instructions:
-            instructions = (
-                "You are a friendly assistant. "
-                "Explain answers clearly in simple language."
-            )
+            instructions = "You are a friendly assistant. Explain answers clearly in simple language."
 
         response = client.models.generate_content(
             model=MODEL_NAME,
@@ -62,6 +56,7 @@ def chat(message, history, custom_instructions):
             ),
         )
         answer = response.text or "The model returned no text. Please try again."
+
         usage = getattr(response, "usage_metadata", None)
         if usage:
             input_tokens = getattr(usage, "prompt_token_count", None)
@@ -72,31 +67,20 @@ def chat(message, history, custom_instructions):
                 f"input `{input_tokens if input_tokens is not None else 'n/a'}`, "
                 f"output `{output_tokens if output_tokens is not None else 'n/a'}`, "
                 f"total `{total_tokens if total_tokens is not None else 'n/a'}`. "
-                "Usage is not the same as price; actual cost depends on the model "
-                "and account pricing."
+                "Token usage is not the same as price; actual cost depends on model and account pricing."
             )
         else:
             usage_text = "Token usage metadata was not returned for this request."
-
     except Exception as exc:
         error_text = str(exc).upper()
         if "503" in error_text or "UNAVAILABLE" in error_text:
             answer = "Gemini is temporarily busy. Please wait a moment and try again."
         elif "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
-            answer = (
-                "The API quota or rate limit was reached. Check your Gemini API "
-                "usage and try again later."
-            )
+            answer = "The API quota or rate limit was reached. Check your Gemini API usage and try again later."
         elif "401" in error_text or "403" in error_text or "API_KEY_INVALID" in error_text:
-            answer = (
-                "Authentication failed. The app owner should check the "
-                "GEMINI_API_KEY secret and API permissions."
-            )
+            answer = "Authentication failed. The app owner should check GEMINI_API_KEY and API permissions."
         else:
-            answer = (
-                f"The request failed ({type(exc).__name__}). "
-                "Please try again or contact the app owner."
-            )
+            answer = f"The request failed ({type(exc).__name__}). Please try again."
         usage_text = "Token usage is shown after successful API responses."
 
     updated_history = history + [
@@ -106,22 +90,7 @@ def chat(message, history, custom_instructions):
     return updated_history, "", usage_text
 
 
-with gr.Blocks(
-    title="AI Productivity Chat",
-    theme=gr.themes.Soft(),
-) as demo:
+with gr.Blocks(title="AI Productivity Chat") as demo:
     gr.Markdown("# 🤖 AI Productivity Chat")
     gr.Markdown(
         "Ask questions, keep context across messages, and customize how Gemini responds. "
-        "Please do not enter private or sensitive information."
-    )
-
-    instructions = gr.Textbox(
-        label="Custom Instructions",
-        value=(
-            "You are a friendly assistant. Explain answers clearly in simple language "
-            "with examples."
-        ),
-        placeholder="Example: Answer in two sentences and use simple English.",
-        lines=2,
-    )
