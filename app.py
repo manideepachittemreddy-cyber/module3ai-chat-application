@@ -103,7 +103,7 @@ with gr.Blocks(title="AI Productivity Chat", theme=gr.themes.Soft()) as demo:
         placeholder="Example: Answer in two sentences and use simple English.",
         lines=2,
     )
-    chatbot = gr.Chatbot(label="Conversation", type="messages", height=420)
+   chatbot = gr.Chatbot(label="Conversation", height=420)
     message = gr.Textbox(label="Your Message", placeholder="Type a question and press Enter...", lines=2)
     with gr.Row():
         send_button = gr.Button("Send 🚀", variant="primary")
