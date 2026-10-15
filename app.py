@@ -92,5 +92,5 @@ def chat(message, history, custom_instructions):
         upper = details.upper()
 
         if "API KEY" in upper or "API_KEY_INVALID" in upper or "UNAUTHENTICATED" in upper or "401" in upper:
-            answer = (
-                "Authentication failed. In Render > Environment, check that "
+            answer = "Authentication failed. In Render > Environment, check that GEMINI_API_KEY contains a valid Gemini API key. Save and redeploy."
+        elif "PERMISSION_DENIED" in upper or "403" in upper:
