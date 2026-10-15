@@ -1,111 +1,96 @@
+import os
+import gradio as gr
+from google import genai
+from google.genai import types
+
+BUILD_MARKER = "MODULE3_CHAT_APP_STABLE_V2"
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
+MAX_HISTORY = 12
+MAX_CHARS = 2000
+
+
+def make_contents(history, current_message):
+    """Convert Gradio message history into a simple Gemini conversation prompt."""
+    parts = []
+    for item in (history or [])[-MAX_HISTORY:]:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content", "")
+        if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+            label = "User" if role == "user" else "Assistant"
+            parts.append(f"{label}: {content[:MAX_CHARS]}")
+    parts.append(f"User: {current_message[:MAX_CHARS]}")
+    parts.append("Assistant:")
+    return "\n\n".join(parts)
+
+
+def chat(message, history, instructions):
+    message = (message or "").strip()
+    history = history or []
     if not message:
-        return history, "", "Please enter a message."
+        return history, "", "Please type a message first."
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
-        answer = "The app owner must set GEMINI_API_KEY in Render Environment variables."
-        updated_history = history + [
+        answer = "The app owner must add GEMINI_API_KEY in Render → Environment."
+        return history + [
             {"role": "user", "content": message},
             {"role": "assistant", "content": answer},
-        ]
-        return updated_history, "", "API key is not configured."
+        ], "", "Gemini API key is not configured."
 
     try:
-        instructions = (custom_instructions or "").strip()
-        if not instructions:
-            instructions = "You are a friendly assistant. Explain answers clearly in simple language."
+        system_instruction = (instructions or "").strip()
+        if not system_instruction:
+            system_instruction = "You are a helpful assistant. Explain things clearly and simply."
 
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
             model=MODEL_NAME,
-            contents=make_prompt(history, message),
+            contents=make_contents(history, message),
             config=types.GenerateContentConfig(
-                system_instruction=instructions,
+                system_instruction=system_instruction,
                 temperature=0.4,
                 max_output_tokens=512,
             ),
         )
-        answer = (response.text or "").strip()
+        answer = (getattr(response, "text", None) or "").strip()
         if not answer:
             answer = "Gemini returned an empty response. Please try again."
 
         usage = getattr(response, "usage_metadata", None)
         if usage is None:
-            usage_text = "Token usage metadata was not returned."
+            usage_text = "Token usage information was not returned for this request."
         else:
             input_tokens = getattr(usage, "prompt_token_count", None)
             output_tokens = getattr(usage, "candidates_token_count", None)
             total_tokens = getattr(usage, "total_token_count", None)
             usage_text = (
-                f"**Token usage (this request):** input `{input_tokens if input_tokens is not None else 'n/a'}`, "
+                "**Token usage (this request):** "
+                f"input `{input_tokens if input_tokens is not None else 'n/a'}`, "
                 f"output `{output_tokens if output_tokens is not None else 'n/a'}`, "
                 f"total `{total_tokens if total_tokens is not None else 'n/a'}`."
             )
     except Exception as exc:
-        # Log the exception for debugging; never print the API key.
-        print(f"{BUILD_MARKER} API error: {type(exc).__name__}: {exc}", flush=True)
-        error_text = str(exc).upper()
-        if "401" in error_text or "API_KEY_INVALID" in error_text or "UNAUTHENTICATED" in error_text:
-            answer = "Authentication failed. Check GEMINI_API_KEY in Render."
-        elif "403" in error_text or "PERMISSION_DENIED" in error_text:
-            answer = "Gemini denied access. Check the API key permissions."
-        elif "429" in error_text or "RESOURCE_EXHAUSTED" in error_text or "QUOTA" in error_text:
-            answer = "The Gemini API quota or rate limit was reached."
-        elif "404" in error_text or "NOT_FOUND" in error_text:
-            answer = f"The model '{MODEL_NAME}' was not found. Check GEMINI_MODEL in Render."
+        # Do not print or expose the API key.
+        print(f"{BUILD_MARKER} request error: {type(exc).__name__}: {exc}", flush=True)
+        details = str(exc).upper()
+        if "API_KEY_INVALID" in details or "UNAUTHENTICATED" in details or "401" in details:
+            answer = "Authentication failed. Check the GEMINI_API_KEY value in Render."
+        elif "PERMISSION_DENIED" in details or "403" in details:
+            answer = "Gemini denied access. Check that the API key has Gemini API access."
+        elif "RESOURCE_EXHAUSTED" in details or "429" in details or "QUOTA" in details:
+            answer = "The Gemini API quota or rate limit was reached. Try again later or check your quota."
+        elif "NOT_FOUND" in details or "404" in details or "MODEL" in details and "NOT FOUND" in details:
+            answer = (
+                f"The model '{MODEL_NAME}' is unavailable for this API key. "
+                "Set GEMINI_MODEL in Render to the model ID that worked in your Colab notebook."
+            )
         else:
-            answer = f"Gemini request failed ({type(exc).__name__}). Check the Render logs."
-        usage_text = "Token usage is shown after a successful response."
+            answer = f"Gemini request failed ({type(exc).__name__}). Check the latest Render logs."
+        usage_text = "Token usage is available after a successful response."
 
     updated_history = history + [
         {"role": "user", "content": message},
         {"role": "assistant", "content": answer},
     ]
-    return updated_history, "", usage_text
-
-
-def clear_chat():
-    return [], "", "**Token usage:** Send a message to see token counts."
-
-
-with gr.Blocks(title="AI Productivity Chat", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# AI Productivity Chat")
-    gr.Markdown("Chat with Gemini, keep recent context, and customize responses.")
-
-    instructions = gr.Textbox(
-        label="Custom Instructions",
-        value="Explain answers clearly in simple English and include examples when useful.",
-        lines=2,
-    )
-    chatbot = gr.Chatbot(label="Conversation", type="messages", height=420)
-    message = gr.Textbox(
-        label="Your Message",
-        placeholder="Type a question and press Enter...",
-        lines=2,
-    )
-    with gr.Row():
-        send_button = gr.Button("Send", variant="primary")
-        clear_button = gr.Button("Clear Chat")
-    usage_display = gr.Markdown("**Token usage:** Send a message to see token counts.")
-
-    send_button.click(
-        fn=chat,
-        inputs=[message, chatbot, instructions],
-        outputs=[chatbot, message, usage_display],
-    )
-    message.submit(
-        fn=chat,
-        inputs=[message, chatbot, instructions],
-        outputs=[chatbot, message, usage_display],
-    )
-    clear_button.click(
-        fn=clear_chat,
-        inputs=None,
-        outputs=[chatbot, message, usage_display],
-    )
-
-
-if __name__ == "__main__":
-    print(f"{BUILD_MARKER} starting with model {MODEL_NAME}", flush=True)
-    port = int(os.environ.get("PORT", "10000"))
-    demo.launch(server_name="0.0.0.0", server_port=port, share=False)
