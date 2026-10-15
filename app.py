@@ -3,14 +3,14 @@ import gradio as gr
 from google import genai
 from google.genai import types
 
-BUILD_MARKER = "MODULE3_CHAT_APP_STABLE_V2"
+BUILD_MARKER = "MODULE3_CHAT_APP_FIXED_V1"
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
 MAX_HISTORY = 12
 MAX_CHARS = 2000
 
 
 def make_contents(history, current_message):
-    """Convert Gradio message history into a simple Gemini conversation prompt."""
+    """Build a bounded conversation prompt from Gradio message history."""
     parts = []
     for item in (history or [])[-MAX_HISTORY:]:
         if not isinstance(item, dict):
@@ -28,16 +28,18 @@ def make_contents(history, current_message):
 def chat(message, history, instructions):
     message = (message or "").strip()
     history = history or []
+
     if not message:
         return history, "", "Please type a message first."
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         answer = "The app owner must add GEMINI_API_KEY in Render → Environment."
-        return history + [
+        updated_history = history + [
             {"role": "user", "content": message},
             {"role": "assistant", "content": answer},
-        ], "", "Gemini API key is not configured."
+        ]
+        return updated_history, "", "Gemini API key is not configured."
 
     try:
         system_instruction = (instructions or "").strip()
@@ -72,7 +74,7 @@ def chat(message, history, instructions):
                 f"total `{total_tokens if total_tokens is not None else 'n/a'}`."
             )
     except Exception as exc:
-        # Do not print or expose the API key.
+        # Never print or expose the API key.
         print(f"{BUILD_MARKER} request error: {type(exc).__name__}: {exc}", flush=True)
         details = str(exc).upper()
         if "API_KEY_INVALID" in details or "UNAUTHENTICATED" in details or "401" in details:
@@ -80,8 +82,8 @@ def chat(message, history, instructions):
         elif "PERMISSION_DENIED" in details or "403" in details:
             answer = "Gemini denied access. Check that the API key has Gemini API access."
         elif "RESOURCE_EXHAUSTED" in details or "429" in details or "QUOTA" in details:
-            answer = "The Gemini API quota or rate limit was reached. Try again later or check your quota."
-        elif "NOT_FOUND" in details or "404" in details or "MODEL" in details and "NOT FOUND" in details:
+            answer = "The Gemini API quota or rate limit was reached. Check your quota and try again."
+        elif "NOT_FOUND" in details or "404" in details or ("MODEL" in details and "NOT FOUND" in details):
             answer = (
                 f"The model '{MODEL_NAME}' is unavailable for this API key. "
                 "Set GEMINI_MODEL in Render to the model ID that worked in your Colab notebook."
@@ -94,3 +96,45 @@ def chat(message, history, instructions):
         {"role": "user", "content": message},
         {"role": "assistant", "content": answer},
     ]
+    return updated_history, "", usage_text
+
+
+with gr.Blocks(title="AI Productivity Chat", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# AI Productivity Chat\nChat with Gemini and review token usage.")
+    chatbot = gr.Chatbot(label="Conversation", type="messages", height=420)
+    instructions = gr.Textbox(
+        label="Custom instructions (optional)",
+        placeholder="For example: Explain answers simply with examples.",
+        lines=2,
+    )
+    usage_display = gr.Markdown("Token usage will appear here.")
+    message = gr.Textbox(
+        label="Your message",
+        placeholder="Type a message and press Enter...",
+        lines=2,
+    )
+    with gr.Row():
+        send_button = gr.Button("Send", variant="primary")
+        clear_button = gr.Button("Clear conversation")
+
+    send_button.click(
+        fn=chat,
+        inputs=[message, chatbot, instructions],
+        outputs=[chatbot, message, usage_display],
+    )
+    message.submit(
+        fn=chat,
+        inputs=[message, chatbot, instructions],
+        outputs=[chatbot, message, usage_display],
+    )
+    clear_button.click(
+        fn=lambda: ([], "", "Token usage will appear here."),
+        inputs=[],
+        outputs=[chatbot, message, usage_display],
+    )
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "10000"))
+    print(f"{BUILD_MARKER} starting; model={MODEL_NAME}; port={port}", flush=True)
+    demo.launch(server_name="0.0.0.0", server_port=port, share=False)
