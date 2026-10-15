@@ -1,35 +1,3 @@
-import os
-import gradio as gr
-from google import genai
-from google.genai import types
-
-BUILD_MARKER = "MODULE3_CHAT_APP_FIXED_V1"
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
-MAX_HISTORY = 12
-MAX_CHARS = 2000
-
-
-def make_contents(history, current_message):
-    """Build a bounded conversation prompt from Gradio message history."""
-    parts = []
-    for item in (history or [])[-MAX_HISTORY:]:
-        if not isinstance(item, dict):
-            continue
-        role = item.get("role")
-        content = item.get("content", "")
-        if role in ("user", "assistant") and isinstance(content, str) and content.strip():
-            label = "User" if role == "user" else "Assistant"
-            parts.append(f"{label}: {content[:MAX_CHARS]}")
-    parts.append(f"User: {current_message[:MAX_CHARS]}")
-    parts.append("Assistant:")
-    return "\n\n".join(parts)
-
-
-def chat(message, history, instructions):
-    message = (message or "").strip()
-    history = history or []
-
-    if not message:
         return history, "", "Please type a message first."
 
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -74,13 +42,13 @@ def chat(message, history, instructions):
                 f"total `{total_tokens if total_tokens is not None else 'n/a'}`."
             )
     except Exception as exc:
-        # Never print or expose the API key.
+        # Never log or expose the API key.
         print(f"{BUILD_MARKER} request error: {type(exc).__name__}: {exc}", flush=True)
         details = str(exc).upper()
         if "API_KEY_INVALID" in details or "UNAUTHENTICATED" in details or "401" in details:
-            answer = "Authentication failed. Check the GEMINI_API_KEY value in Render."
+            answer = "Authentication failed. Check GEMINI_API_KEY in Render Environment settings."
         elif "PERMISSION_DENIED" in details or "403" in details:
-            answer = "Gemini denied access. Check that the API key has Gemini API access."
+            answer = "Gemini denied access. Check that your API key has Gemini API access."
         elif "RESOURCE_EXHAUSTED" in details or "429" in details or "QUOTA" in details:
             answer = "The Gemini API quota or rate limit was reached. Check your quota and try again."
         elif "NOT_FOUND" in details or "404" in details or ("MODEL" in details and "NOT FOUND" in details):
@@ -99,9 +67,11 @@ def chat(message, history, instructions):
     return updated_history, "", usage_text
 
 
-with gr.Blocks(title="AI Productivity Chat", theme=gr.themes.Soft()) as demo:
+# Gradio 6 uses messages-format chat history by default; the old `type=`
+# constructor argument is not accepted by the version currently on Render.
+with gr.Blocks(title="AI Productivity Chat") as demo:
     gr.Markdown("# AI Productivity Chat\nChat with Gemini and review token usage.")
-    chatbot = gr.Chatbot(label="Conversation", type="messages", height=420)
+    chatbot = gr.Chatbot(label="Conversation", height=420)
     instructions = gr.Textbox(
         label="Custom instructions (optional)",
         placeholder="For example: Explain answers simply with examples.",
@@ -137,4 +107,9 @@ with gr.Blocks(title="AI Productivity Chat", theme=gr.themes.Soft()) as demo:
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "10000"))
     print(f"{BUILD_MARKER} starting; model={MODEL_NAME}; port={port}", flush=True)
-    demo.launch(server_name="0.0.0.0", server_port=port, share=False)
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=port,
+        share=False,
+        theme=gr.themes.Soft(),
+    )
